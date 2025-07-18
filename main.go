@@ -77,6 +77,21 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ❌ Abaikan jika tidak ada "message"
+	msg, hasMessage := payload["message"].(map[string]interface{})
+	if !hasMessage {
+		log.Println("❌ Tidak ada objek 'message'")
+		fmt.Fprint(w, "ignored: no message object")
+		return
+	}
+
+	// ❌ Abaikan jika message.text kosong
+	if text, ok := msg["text"].(string); !ok || strings.TrimSpace(text) == "" {
+		log.Println("❌ message.text kosong")
+		fmt.Fprint(w, "ignored: empty message.text")
+		return
+	}
+
 	fromRaw, ok := payload["from"].(string)
 	if !ok || fromRaw == "" {
 		log.Println("❌ Tidak ada 'from' yang valid")
@@ -84,29 +99,30 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ❌ Abaikan jika mengandung @g.us di bagian mana pun
+	// ❌ Abaikan jika mengandung @g.us
 	if strings.Contains(fromRaw, "@g.us") {
 		log.Println("❌ Diblokir karena mengandung @g.us:", fromRaw)
 		fmt.Fprint(w, "ignored: group detected")
 		return
 	}
 
-	// ✅ Ambil yang cocok dengan pola `angka(:xx)?@s.whatsapp.net`
+	// ✅ Ambil yang cocok angka(:xx)?@s.whatsapp.net
 	matches := sWhatsAppPattern.FindAllString(fromRaw, -1)
 	if len(matches) == 0 {
-		log.Println("❌ Tidak ditemukan @s.whatsapp.net yang valid:", fromRaw)
+		log.Println("❌ Tidak ditemukan @s.whatsapp.net valid:", fromRaw)
 		fmt.Fprint(w, "ignored: invalid format")
 		return
 	}
 
-	// Bersihkan :xx jika ada, lalu buat `from` baru
-	cleanFrom := strings.Split(matches[0], ":")[0] + "@s.whatsapp.net"
+	// 🔧 Bersihkan jika ada :xx dan hapus duplikasi @s.whatsapp.net
+	raw := strings.Split(matches[0], ":")[0]
+	cleanFrom := strings.TrimSuffix(raw, "@s.whatsapp.net") + "@s.whatsapp.net"
 	payload["from"] = cleanFrom
 
-	// Marshal ulang dan kirim ke semua WebSocket client
+	// Marshal ulang dan kirim ke WebSocket
 	newBody, err := json.Marshal(payload)
 	if err != nil {
-		http.Error(w, "failed to serialize modified payload", http.StatusInternalServerError)
+		http.Error(w, "failed to serialize filtered body", http.StatusInternalServerError)
 		return
 	}
 
